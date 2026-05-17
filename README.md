@@ -48,7 +48,7 @@ d1/
 > **Recommended environment.** Colab provides free GPU/CPU and lets teammates share a single notebook link. No local Python setup needed.
 
 1. Go to [colab.research.google.com](https://colab.research.google.com)
-2. Click **File → Upload notebook** and upload `d1_automl.ipynb`
+2. Click **File → Upload notebook** and upload `D1.ipynb`
 3. Follow the Kaggle setup steps below **before** running any cells
 4. Run cells top to bottom (**Runtime → Run all**)
 
