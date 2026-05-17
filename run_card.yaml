@@ -39,7 +39,7 @@ winning_config:
   metric: cosine
 metrics:
   baseline:
-    NDCG@5: !!python/object/apply:numpy._core.multiarray.scalar
+    NDCG@5: !!python/object/apply:numpy.core.multiarray.scalar
     - &id001 !!python/object/apply:numpy.dtype
       args:
       - f8
@@ -56,27 +56,27 @@ metrics:
       - 0
     - !!binary |
       U5YhjnVx7z8=
-    Recall@5: !!python/object/apply:numpy._core.multiarray.scalar
+    Recall@5: !!python/object/apply:numpy.core.multiarray.scalar
     - *id001
     - !!binary |
       AAAAAAAA8D8=
-    p95_latency_ms: !!python/object/apply:numpy._core.multiarray.scalar
+    p95_latency_ms: !!python/object/apply:numpy.core.multiarray.scalar
     - *id001
     - !!binary |
-      uB6F61G4GUA=
+      16NwPQrXAUA=
   automl_best:
-    NDCG@5: !!python/object/apply:numpy._core.multiarray.scalar
+    NDCG@5: !!python/object/apply:numpy.core.multiarray.scalar
     - *id001
     - !!binary |
       UiegibDh7z8=
-    Recall@5: !!python/object/apply:numpy._core.multiarray.scalar
+    Recall@5: !!python/object/apply:numpy.core.multiarray.scalar
     - *id001
     - !!binary |
       AAAAAAAA8D8=
-    p95_latency_ms: !!python/object/apply:numpy._core.multiarray.scalar
+    p95_latency_ms: !!python/object/apply:numpy.core.multiarray.scalar
     - *id001
     - !!binary |
-      mpmZmZmZB0A=
+      PQrXo3A9/j8=
 online_learning:
   library: River
   model: LogisticRegression (SGD, l2=1e-4)

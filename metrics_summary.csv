@@ -1,3 +1,4 @@
-Config,NDCG@5,Recall@5,p95_ms
-Baseline (default),0.9826,1.0,6.43
-AutoML (Optuna best),0.9963,1.0,2.95
+Config,NDCG@5,Recall@5,p95_ms,Prequential Acc,Drift Events
+Baseline (default),0.9826,1.0,2.23,,
+AutoML (Optuna best),0.9963,1.0,1.89,,
+River (online learner),-,-,-,0.64,1.0
