@@ -1,5 +1,4 @@
 # D1 — Streaming Learner & AutoML Note
-**CSAI415 | Week 5 Deliverable (15%)**
 
 Auto-tuned hybrid kNN retriever (Optuna) + River online learner with ADWIN drift detection, evaluated over an arXiv scientific papers corpus.
 
