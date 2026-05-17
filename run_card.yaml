@@ -1,0 +1,86 @@
+run_card:
+  experiment: D1-AutoML-kNN-Optuna
+  date: '2026-05-17'
+  seed: 42
+  n_trials: 40
+  embed_model: BAAI/bge-small-en-v1.5
+  eval_k: 5
+search_space:
+  k:
+    type: int
+    low: 1
+    high: 20
+  alpha:
+    type: float
+    low: 0.0
+    high: 1.0
+  svd_dim:
+    type: categorical
+    choices:
+    - null
+    - 64
+    - 128
+    - 256
+  norm:
+    type: categorical
+    choices:
+    - l2
+    - none
+  metric:
+    type: categorical
+    choices:
+    - cosine
+    - euclidean
+winning_config:
+  k: 12
+  alpha: 0.0059971829558173595
+  svd_dim: 256
+  norm: none
+  metric: cosine
+metrics:
+  baseline:
+    NDCG@5: !!python/object/apply:numpy._core.multiarray.scalar
+    - &id001 !!python/object/apply:numpy.dtype
+      args:
+      - f8
+      - false
+      - true
+      state: !!python/tuple
+      - 3
+      - <
+      - null
+      - null
+      - null
+      - -1
+      - -1
+      - 0
+    - !!binary |
+      pU5AE2HD7z8=
+    Recall@5: !!python/object/apply:numpy._core.multiarray.scalar
+    - *id001
+    - !!binary |
+      AAAAAAAA8D8=
+    p95_latency_ms: !!python/object/apply:numpy._core.multiarray.scalar
+    - *id001
+    - !!binary |
+      w/UoXI/CEUA=
+  automl_best:
+    NDCG@5: !!python/object/apply:numpy._core.multiarray.scalar
+    - *id001
+    - !!binary |
+      AAAAAAAA8D8=
+    Recall@5: !!python/object/apply:numpy._core.multiarray.scalar
+    - *id001
+    - !!binary |
+      AAAAAAAA8D8=
+    p95_latency_ms: !!python/object/apply:numpy._core.multiarray.scalar
+    - *id001
+    - !!binary |
+      pHA9CtejCEA=
+online_learning:
+  library: River
+  model: LogisticRegression (SGD, l2=1e-4)
+  drift: ADWIN (delta=0.002)
+  steps: 300
+  n_drifts: 1
+  final_accuracy: 0.6433

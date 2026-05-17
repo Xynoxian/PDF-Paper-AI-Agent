@@ -1,0 +1,3 @@
+Config,NDCG@5,Recall@5,p95_ms
+Baseline (default),0.9926,1.0,4.44
+AutoML (Optuna best),1.0,1.0,3.08
