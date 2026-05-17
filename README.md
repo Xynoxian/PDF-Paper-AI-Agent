@@ -33,7 +33,7 @@ This deliverable implements two components on top of an arXiv paper corpus:
 
 ```
 d1/
-├── d1_automl.ipynb        # Main notebook (run this)
+├── D1.ipynb        # Main notebook (run this)
 ├── run_card.yaml          # Winning config + all metrics (auto-generated)
 ├── metrics_summary.csv    # Baseline vs AutoML table (auto-generated)
 ├── automl_search.png      # Optuna convergence plot (auto-generated)
