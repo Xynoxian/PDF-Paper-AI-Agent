@@ -32,8 +32,8 @@ search_space:
     - cosine
     - euclidean
 winning_config:
-  k: 12
-  alpha: 0.0059971829558173595
+  k: 11
+  alpha: 0.11537551863842466
   svd_dim: 256
   norm: none
   metric: cosine
@@ -55,7 +55,7 @@ metrics:
       - -1
       - 0
     - !!binary |
-      pU5AE2HD7z8=
+      U5YhjnVx7z8=
     Recall@5: !!python/object/apply:numpy._core.multiarray.scalar
     - *id001
     - !!binary |
@@ -63,12 +63,12 @@ metrics:
     p95_latency_ms: !!python/object/apply:numpy._core.multiarray.scalar
     - *id001
     - !!binary |
-      w/UoXI/CEUA=
+      uB6F61G4GUA=
   automl_best:
     NDCG@5: !!python/object/apply:numpy._core.multiarray.scalar
     - *id001
     - !!binary |
-      AAAAAAAA8D8=
+      UiegibDh7z8=
     Recall@5: !!python/object/apply:numpy._core.multiarray.scalar
     - *id001
     - !!binary |
@@ -76,11 +76,11 @@ metrics:
     p95_latency_ms: !!python/object/apply:numpy._core.multiarray.scalar
     - *id001
     - !!binary |
-      pHA9CtejCEA=
+      mpmZmZmZB0A=
 online_learning:
   library: River
   model: LogisticRegression (SGD, l2=1e-4)
   drift: ADWIN (delta=0.002)
-  steps: 300
+  steps: 600
   n_drifts: 1
-  final_accuracy: 0.6433
+  final_accuracy: 0.64
