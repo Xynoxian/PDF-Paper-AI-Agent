@@ -1,4 +1,4 @@
-# PDF-Papers AI Agent — Docker Compose
+  # PDF-Papers AI Agent — Docker Compose
 # ======================================
 # Services: MongoDB, Qdrant, Neo4j (+ APOC), FastAPI app
 #
