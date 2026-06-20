@@ -18,9 +18,11 @@ import logging
 import math
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
+import yaml
 from pymongo import MongoClient
 from qdrant_client import QdrantClient
 from rank_bm25 import BM25Okapi
@@ -39,6 +41,36 @@ from ingest import (
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Requirement 1: Parameter injection from configs/run_card.yaml
+# ---------------------------------------------------------------------------
+
+
+def _load_winning_config() -> dict[str, Any]:
+    """Load the AutoML winning hyperparameters from run_card.yaml.
+
+    Returns the winning_config dict with keys: k, alpha, svd_dim, norm, metric.
+    Falls back to sensible defaults if the config file is missing.
+    """
+    config_path = Path(__file__).parent / "configs" / "run_card.yaml"
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+        winning = config.get("winning_config", {})
+        logger.info(
+            "Loaded winning config from %s: k=%s, alpha=%s",
+            config_path, winning.get("k"), winning.get("alpha"),
+        )
+        return winning
+    except (FileNotFoundError, yaml.YAMLError) as exc:
+        logger.warning("Could not load run_card.yaml (%s), using defaults.", exc)
+        return {}
+
+
+WINNING_CONFIG: dict[str, Any] = _load_winning_config()
+CONFIG_K: int = WINNING_CONFIG.get("k", 5)
+CONFIG_ALPHA: float = WINNING_CONFIG.get("alpha", 0.5)
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -126,19 +158,39 @@ class HybridSearcher:
         vec = model.encode([query], normalize_embeddings=True)[0]
         return vec.tolist()
 
-    def bm25_search(self, query: str, top_k: int = 20) -> list[SearchResult]:
-        """Sparse (BM25) search over the MongoDB chunk corpus."""
+    def bm25_search(
+        self,
+        query: str,
+        top_k: int = 20,
+        paper_ids: list[str] | None = None,
+    ) -> list[SearchResult]:
+        """Sparse (BM25) search over the MongoDB chunk corpus.
+
+        Args:
+            query: The search query string.
+            top_k: Maximum number of results to return.
+            paper_ids: If provided, restrict results to chunks from these papers.
+
+        Returns:
+            List of SearchResult objects ranked by BM25 score.
+        """
         self._ensure_bm25()
         if not self._bm25_docs:
             return []
 
         tokens = query.lower().split()
         scores = self._bm25.get_scores(tokens)
-        top_indices = np.argsort(scores)[::-1][:top_k]
+        top_indices = np.argsort(scores)[::-1]
+
+        allowed = set(paper_ids) if paper_ids else None
 
         results: list[SearchResult] = []
         for idx in top_indices:
+            if len(results) >= top_k:
+                break
             doc = self._bm25_docs[idx]
+            if allowed and doc["paper_id"] not in allowed:
+                continue
             results.append(
                 SearchResult(
                     chunk_id=doc["chunk_id"],
@@ -154,12 +206,37 @@ class HybridSearcher:
             )
         return results
 
-    def dense_search(self, query: str, top_k: int = 20) -> list[SearchResult]:
-        """Dense vector search via Qdrant."""
+    def dense_search(
+        self,
+        query: str,
+        top_k: int = 20,
+        paper_ids: list[str] | None = None,
+    ) -> list[SearchResult]:
+        """Dense vector search via Qdrant with optional paper_id filtering.
+
+        Args:
+            query: The search query string.
+            top_k: Maximum number of results to return.
+            paper_ids: If provided, restrict results to chunks from these papers
+                       using Qdrant's native payload filtering.
+
+        Returns:
+            List of SearchResult objects ranked by cosine similarity.
+        """
+        from qdrant_client.models import FieldCondition, Filter, MatchAny
+
         query_vec = self._embed_query(query)
+
+        query_filter = None
+        if paper_ids:
+            query_filter = Filter(
+                must=[FieldCondition(key="paper_id", match=MatchAny(any=paper_ids))]
+            )
+
         hits = self._qdrant.query_points(
             collection_name=self._qdrant_collection,
             query=query_vec,
+            query_filter=query_filter,
             limit=top_k,
         ).points
 
@@ -221,12 +298,34 @@ class HybridSearcher:
             )
         return fused
 
-    def search(self, query: str, top_k: int = 5) -> list[SearchResult]:
-        """Hybrid search: BM25 + Dense fused with RRF."""
+    def search(
+        self,
+        query: str,
+        top_k: int | None = None,
+        paper_ids: list[str] | None = None,
+    ) -> list[SearchResult]:
+        """Hybrid search: BM25 + Dense fused with RRF.
+
+        Uses the AutoML winning k-value from configs/run_card.yaml as the
+        default top_k when none is specified.
+
+        Args:
+            query: The search query string.
+            top_k: Number of results to return. Defaults to CONFIG_K from
+                   the winning AutoML config (run_card.yaml).
+            paper_ids: If provided, both BM25 and Dense searches are restricted
+                       to chunks from these papers (used by GraphRAG pre-filter).
+
+        Returns:
+            List of SearchResult objects fused via RRF.
+        """
+        if top_k is None:
+            top_k = CONFIG_K
+
         candidate_k = top_k * 4
 
-        bm25_results = self.bm25_search(query, top_k=candidate_k)
-        dense_results = self.dense_search(query, top_k=candidate_k)
+        bm25_results = self.bm25_search(query, top_k=candidate_k, paper_ids=paper_ids)
+        dense_results = self.dense_search(query, top_k=candidate_k, paper_ids=paper_ids)
 
         fused = self.rrf_fuse([bm25_results, dense_results], top_k=top_k)
         return fused

@@ -1,0 +1,6 @@
+query,expected_keywords
+"How does the attention mechanism work in transformers?","attention,self-attention,multi-head,scaled dot-product"
+"What is BERT and how is it pre-trained?","masked language model,pre-training,bidirectional,BERT"
+"How does retrieval-augmented generation improve LLM accuracy?","retrieval,augmented,generation,knowledge,RAG"
+"What architecture does LLaMA use?","LLaMA,transformer,decoder,parameters"
+"How does LLaVA combine vision and language?","visual,language,multimodal,instruction,LLaVA"

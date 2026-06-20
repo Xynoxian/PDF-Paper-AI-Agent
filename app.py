@@ -72,9 +72,11 @@ logger = logging.getLogger(__name__)
 _searcher = None
 _graph = None
 _adapter = None
+_executor = None
 
 
 def _get_searcher():
+    """Lazy singleton for the HybridSearcher (BM25 + Dense + RRF)."""
     global _searcher
     if _searcher is None:
         from hybrid_search import HybridSearcher
@@ -83,6 +85,7 @@ def _get_searcher():
 
 
 def _get_graph():
+    """Lazy singleton for the Neo4j KnowledgeGraph."""
     global _graph
     if _graph is None:
         from graph_build import KnowledgeGraph
@@ -91,11 +94,28 @@ def _get_graph():
 
 
 def _get_adapter():
+    """Lazy singleton for the River online learning adapter (D1)."""
     global _adapter
     if _adapter is None:
         from online_learning import RiverHybridAdapter
         _adapter = RiverHybridAdapter()
     return _adapter
+
+
+def _get_executor():
+    """Lazy singleton for the GraphRAG executor (D3).
+
+    Shares the searcher and graph instances with the rest of the app
+    to avoid duplicate connections.
+    """
+    global _executor
+    if _executor is None:
+        from graphrag_executor import GraphRAGExecutor
+        _executor = GraphRAGExecutor(
+            searcher=_get_searcher(),
+            graph=_get_graph(),
+        )
+    return _executor
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +194,30 @@ class AdapterStatsResponse(BaseModel):
     prequential: list[dict]
 
 
+class GraphRAGRequest(BaseModel):
+    """Request body for the GraphRAG pipeline endpoint."""
+    query: str = Field(..., min_length=1, description="Natural-language question")
+    top_k: int = Field(default=5, ge=1, le=20, description="Number of chunks to retrieve")
+
+
+class GraphRAGResponseModel(BaseModel):
+    """Response from the GraphRAG pipeline with provenance metadata."""
+    answer: str
+    citations: list[str]
+    verified_citations: list[str]
+    dropped_citations: list[str]
+    chunks_used: int
+    graph_filter_applied: bool
+    graph_papers_found: int
+    cypher_generated: Optional[str]
+    intent: str
+    fallback: bool
+    provenance_score: float
+    bm25_top_score: float
+    dense_top_score: float
+    elapsed_ms: float
+
+
 class StatsResponse(BaseModel):
     mongo_chunks: int
     qdrant_vectors: int
@@ -246,19 +290,35 @@ async def hybrid_search(req: SearchRequest) -> SearchResponse:
 
 @app.post("/feedback", response_model=FeedbackResponse, tags=["Online Learning"])
 async def submit_feedback(req: FeedbackRequest) -> FeedbackResponse:
-    """Submit user feedback to the River online learner.
+    """Submit y/n helpfulness feedback for a specific query.
 
-    The adapter learns from this feedback to adapt hybrid fusion weights.
-    ADWIN monitors for concept drift in the feedback stream.
+    This endpoint synchronously calls the River online learner to:
+      1. Update the model weights based on the feedback.
+      2. Trigger ADWIN drift detection on the error stream.
+      3. Return the current accuracy and drift status.
+
+    The adapter learns from (bm25_score, dense_score, query_features)
+    to predict whether results will be helpful. ADWIN monitors the
+    error stream for concept drift, signaling when the retrieval
+    strategy needs re-evaluation.
+
+    Tip: after calling /graphrag, pass the returned bm25_top_score and
+    dense_top_score into this endpoint for accurate feature learning.
     """
     adapter = _get_adapter()
 
-    entry = adapter.learn(
-        query_text=req.query,
-        bm25_top_score=req.bm25_top_score,
-        dense_top_score=req.dense_top_score,
-        helpful=req.helpful,
-    )
+    try:
+        entry = adapter.learn(
+            query_text=req.query,
+            bm25_top_score=req.bm25_top_score,
+            dense_top_score=req.dense_top_score,
+            helpful=req.helpful,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Feedback learning failed: {exc}",
+        )
 
     return FeedbackResponse(
         status="ok",
@@ -301,6 +361,44 @@ async def graph_query(req: GraphQueryRequest) -> GraphQueryResponse:
     return GraphQueryResponse(
         records=records,
         num_records=len(records),
+        elapsed_ms=round(elapsed_ms, 2),
+    )
+
+
+@app.post("/graphrag", response_model=GraphRAGResponseModel, tags=["GraphRAG"])
+async def graphrag_query(req: GraphRAGRequest) -> GraphRAGResponseModel:
+    """GraphRAG pipeline: graph-filtered retrieval + LLM answer generation.
+
+    End-to-end pipeline (Method A -- Pre-Filter):
+      1. LLM generates Cypher from the question
+      2. Neo4j returns matching paper IDs (subgraph extraction)
+      3. Hybrid search runs filtered to those papers (fallback if empty)
+      4. LLM generates a grounded answer with page-range citations
+      5. Provenance filter verifies citations against retrieved metadata
+    """
+    executor = _get_executor()
+
+    t0 = time.perf_counter()
+    try:
+        resp = executor.query(req.query, top_k=req.top_k)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+
+    return GraphRAGResponseModel(
+        answer=resp.answer,
+        citations=resp.citations,
+        verified_citations=resp.verified_citations,
+        dropped_citations=resp.dropped_citations,
+        chunks_used=resp.chunks_used,
+        graph_filter_applied=resp.graph_filter_applied,
+        graph_papers_found=resp.graph_papers_found,
+        cypher_generated=resp.cypher_generated,
+        intent=resp.intent,
+        fallback=resp.fallback,
+        provenance_score=resp.provenance_score,
+        bm25_top_score=resp.bm25_top_score,
+        dense_top_score=resp.dense_top_score,
         elapsed_ms=round(elapsed_ms, 2),
     )
 

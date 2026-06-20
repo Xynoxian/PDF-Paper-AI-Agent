@@ -28,6 +28,9 @@ river>=0.21.0
 optuna>=3.6.0
 scikit-learn>=1.4.0
 
+# LLM client (GraphRAG D3)
+openai>=1.30.0
+
 # Utilities
 numpy>=1.26.0
 pandas>=2.2.0
