@@ -16,6 +16,10 @@ import time
 from typing import Any, Optional
 import threading
 from contextlib import asynccontextmanager
+
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -382,6 +386,7 @@ async def graphrag_query(req: GraphRAGRequest) -> GraphRAGResponseModel:
     try:
         resp = executor.query(req.query, top_k=req.top_k)
     except Exception as exc:
+        logger.error("GraphRAG query failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))
     elapsed_ms = (time.perf_counter() - t0) * 1000
 

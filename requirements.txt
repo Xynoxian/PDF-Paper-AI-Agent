@@ -31,6 +31,9 @@ scikit-learn>=1.4.0
 # LLM client (GraphRAG D3)
 openai>=1.30.0
 
+# Environment variables
+python-dotenv>=1.0.0
+
 # Utilities
 numpy>=1.26.0
 pandas>=2.2.0

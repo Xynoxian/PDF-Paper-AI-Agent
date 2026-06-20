@@ -120,7 +120,10 @@ evaluation. If PDF downloads fail, it falls back to synthetic data automatically
 uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Swagger UI is at **http://localhost:8000/docs**.
+> **Note:** If port 8000 is taken (e.g. by Splunk, which defaults to 8000), use a
+> different port: `uvicorn app:app --host 0.0.0.0 --port 8001 --reload`
+
+Swagger UI is at **http://localhost:8000/docs** (or whichever port you chose).
 
 ## Quick Start (Full Docker Compose)
 
@@ -143,28 +146,51 @@ API is at **http://localhost:8000/docs**.
 
 ## Testing the Endpoints
 
+> **Windows PowerShell note:** PowerShell aliases `curl` to `Invoke-WebRequest`, which
+> uses different syntax. The examples below show both **Bash** (Linux/Mac/Git Bash) and
+> **PowerShell** commands. In PowerShell, use `curl.exe` to call the real curl, or use
+> `Invoke-RestMethod` as shown.
+
 ### Health check
 
+**Bash:**
 ```bash
 curl http://localhost:8000/health
+```
+
+**PowerShell:**
+```powershell
+Invoke-RestMethod http://localhost:8000/health
 ```
 
 All three services (mongo, qdrant, neo4j) should return `"ok"`.
 
 ### Ingest PDFs
 
+**Bash:**
 ```bash
 curl -X POST http://localhost:8000/ingest \
   -H "Content-Type: application/json" \
   -d '{"pdf_dir": "papers"}'
 ```
 
+**PowerShell:**
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/ingest -ContentType "application/json" -Body '{"pdf_dir": "papers"}'
+```
+
 ### Hybrid search (D2)
 
+**Bash:**
 ```bash
 curl -X POST http://localhost:8000/search \
   -H "Content-Type: application/json" \
   -d '{"query": "attention mechanism in transformers", "top_k": 5}'
+```
+
+**PowerShell:**
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/search -ContentType "application/json" -Body '{"query": "attention mechanism in transformers", "top_k": 5}'
 ```
 
 Returns BM25 + Dense results fused via RRF, using the AutoML-optimized k=11 from
@@ -172,10 +198,16 @@ Returns BM25 + Dense results fused via RRF, using the AutoML-optimized k=11 from
 
 ### GraphRAG query (D3)
 
+**Bash:**
 ```bash
 curl -X POST http://localhost:8000/graphrag \
   -H "Content-Type: application/json" \
   -d '{"query": "What papers has Vaswani written about attention?", "top_k": 5}'
+```
+
+**PowerShell:**
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/graphrag -ContentType "application/json" -Body '{"query": "What papers has Vaswani written about attention?", "top_k": 5}'
 ```
 
 Full pipeline response includes:
@@ -192,6 +224,7 @@ Full pipeline response includes:
 
 After a `/graphrag` query, submit helpfulness feedback:
 
+**Bash:**
 ```bash
 curl -X POST http://localhost:8000/feedback \
   -H "Content-Type: application/json" \
@@ -203,6 +236,11 @@ curl -X POST http://localhost:8000/feedback \
   }'
 ```
 
+**PowerShell:**
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/feedback -ContentType "application/json" -Body '{"query": "What papers has Vaswani written about attention?", "helpful": 1, "bm25_top_score": 12.5, "dense_top_score": 0.87}'
+```
+
 This synchronously:
 1. Updates the River LogisticRegression model weights
 2. Triggers ADWIN drift detection on the error stream
@@ -210,24 +248,42 @@ This synchronously:
 
 ### Check online learning stats
 
+**Bash:**
 ```bash
 curl http://localhost:8000/feedback/stats
+```
+
+**PowerShell:**
+```powershell
+Invoke-RestMethod http://localhost:8000/feedback/stats
 ```
 
 Returns total steps, accuracy, drift count, and the full prequential log.
 
 ### Graph query (raw Cypher)
 
+**Bash:**
 ```bash
 curl -X POST http://localhost:8000/graph/query \
   -H "Content-Type: application/json" \
   -d '{"cypher": "MATCH (a:Author)-[:WROTE]->(p:Paper) RETURN a.name, p.title LIMIT 10"}'
 ```
 
+**PowerShell:**
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/graph/query -ContentType "application/json" -Body '{"cypher": "MATCH (a:Author)-[:WROTE]->(p:Paper) RETURN a.name, p.title LIMIT 10"}'
+```
+
 ### System stats
 
+**Bash:**
 ```bash
 curl http://localhost:8000/stats
+```
+
+**PowerShell:**
+```powershell
+Invoke-RestMethod http://localhost:8000/stats
 ```
 
 ## Running the Evaluation & Ablation Harness (D3)
@@ -373,6 +429,8 @@ A sample `eval_queries.csv` with 5 queries is included in the repo.
 | `ModuleNotFoundError` | Activate your venv and run `pip install -r requirements.txt` |
 | Embedding model download slow | First run downloads ~130MB for BGE. Cached afterward |
 | `/graphrag` returns 500 | Check that `LLM_API_KEY` is set in your `.env` file |
+| Port 8000 conflict (Splunk, etc.) | Run uvicorn on a different port: `--port 8001`. Check with `netstat -ano \| findstr :8000` |
+| `/ingest` returns `num_chunks: 0` | Data was already ingested (e.g. by `seed_data.py`). This is normal — duplicates are skipped |
 | Provenance score is low | The LLM may hallucinate titles. Lower temperature helps (default 0.0) |
 
 ## Team

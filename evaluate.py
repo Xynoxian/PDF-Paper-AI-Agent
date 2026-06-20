@@ -36,6 +36,9 @@ import logging
 import os
 import re
 import time
+
+from dotenv import load_dotenv
+load_dotenv()
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
