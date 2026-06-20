@@ -1,12 +1,38 @@
-optuna
-rank_bm25
-sentence-transformers
-scikit-learn
-river
-matplotlib
-pyyaml
-tqdm
-kaggle
-kagglehub
-numpy
-pandas
+# PDF extraction
+PyMuPDF>=1.24.0
+
+# Embeddings
+sentence-transformers>=2.7.0
+torch>=2.0.0
+
+# Vector store
+qdrant-client>=1.9.0
+
+# Document store
+pymongo>=4.7.0
+
+# Graph database
+neo4j>=5.20.0
+
+# BM25 sparse retrieval
+rank-bm25>=0.2.2
+
+# API framework
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+
+# Online learning & drift detection (D1)
+river>=0.21.0
+
+# AutoML hyperparameter tuning (D1)
+optuna>=3.6.0
+scikit-learn>=1.4.0
+
+# Utilities
+numpy>=1.26.0
+pandas>=2.2.0
+requests>=2.31.0
+pydantic>=2.7.0
+pyyaml>=6.0
+matplotlib>=3.8.0
+tqdm>=4.66.0
