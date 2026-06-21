@@ -2,6 +2,17 @@
 
 Hybrid Retrieval + GraphRAG with Online Learning, AutoML, and Provenance Safety (CSAI415).
 
+---
+
+> **FASTEST WAY TO RUN THIS PROJECT:**
+> 1. Have **Docker Desktop** running and **Python 3.11+** installed
+> 2. Double-click **`start.bat`**
+> 3. The browser opens automatically. Done.
+>
+> That's it. Everything else in this README is details. See [Quick Start (One Command)](#quick-start-one-command) below.
+
+---
+
 ## Architecture
 
 ```
@@ -46,264 +57,133 @@ PDF Files (papers/)
 - **Git**
 - **An LLM API key** (OpenAI, or any OpenAI-compatible provider) for the GraphRAG pipeline
 
-## Quick Start (Local Python + Dockerized Services)
+## Quick Start (One Command)
 
-This is the recommended setup for development.
+Make sure **Docker Desktop** is running and **Python 3.11+** is installed, then:
 
-### Step 1: Clone and switch to branch
+```
+start.bat
+```
+
+That's it. The script will:
+1. Start MongoDB, Qdrant, and Neo4j in Docker
+2. Create a virtual environment and install dependencies
+3. Seed 5 sample arXiv papers into the system
+4. Launch the server and open **http://localhost:8001** in your browser
+
+> **Note:** On first run, dependency installation and paper downloads may take a couple of minutes.
+> If you want GraphRAG (LLM-powered answers), edit `.env` and set `LLM_API_KEY` before running.
+> Hybrid Search works without an API key.
+
+To stop the server, press `Ctrl+C` in the terminal window.
+
+### Manual Setup (Step by Step)
+
+If you prefer to run each step yourself:
 
 ```bash
+# 1. Clone the repo
 git clone https://github.com/Xynoxian/PDF-Paper-AI-Agent.git
 cd PDF-Paper-AI-Agent
-git checkout Testing_Zone
-```
 
-### Step 2: Start backing services
-
-```bash
+# 2. Start database services
 docker compose up -d mongodb qdrant neo4j
-```
 
-Wait ~15 seconds for all three services to initialize. You can check with:
-
-```bash
-docker compose ps
-```
-
-All three containers should show `running` (and `healthy` for MongoDB/Neo4j).
-
-### Step 3: Create a virtual environment and install dependencies
-
-```bash
+# 3. Create venv and install dependencies
 python -m venv .venv
-
-# Windows (PowerShell):
-.venv\Scripts\Activate.ps1
-
-# Windows (CMD):
-.venv\Scripts\activate.bat
-
-# Linux/Mac:
-source .venv/bin/activate
-
+.venv\Scripts\Activate.ps1          # Windows PowerShell
 pip install -r requirements.txt
-```
 
-### Step 4: Configure environment variables
+# 4. Configure environment (set LLM_API_KEY for GraphRAG)
+copy .env.example .env
 
-```bash
-cp .env.example .env
-```
-
-Edit `.env` and set your LLM API key:
-
-```
-LLM_API_KEY=sk-your-actual-api-key-here
-```
-
-The other defaults work as-is for local Docker services. If you use a non-OpenAI
-provider, also update `LLM_BASE_URL` and `LLM_MODEL`.
-
-### Step 5: Seed sample data
-
-```bash
+# 5. Seed sample data
 python seed_data.py
+
+# 6. Start the server
+uvicorn app:app --host 0.0.0.0 --port 8001 --reload
 ```
 
-This downloads 5 arXiv PDFs (Transformer, BERT, RAG, LLaMA, LLaVA), ingests them
-into MongoDB + Qdrant, builds the Neo4j knowledge graph, and runs a quick retrieval
-evaluation. If PDF downloads fail, it falls back to synthetic data automatically.
+Open **http://localhost:8001** in your browser.
 
-### Step 6: Run the API server
+> **Tip:** Swagger API docs are also available at **http://localhost:8001/docs** if needed.
+
+---
+
+## Demo Walkthrough
+
+Everything is done through the web UI at **http://localhost:8001**. No terminal commands needed after setup. The sidebar on the left has four tabs:
+
+### 1. Chat (D2 + D3)
+
+This is the main feature. Type a question and press Enter.
+
+**Try with Hybrid Search mode** (select from the dropdown):
+```
+What is the attention mechanism in transformers?
+```
+This runs BM25 + Dense retrieval with RRF fusion (D2). You get ranked chunks from the ingested papers.
+
+**Try with GraphRAG mode** (select from the dropdown):
+```
+What papers discuss attention mechanisms?
+```
+This runs the full GraphRAG pipeline (D3): LLM generates a Cypher query, retrieves a subgraph from Neo4j, filters results, and generates a grounded answer with citations. You will see:
+- The LLM answer
+- Expandable **Sources** with verified/dropped citations and a provenance score
+- Metadata tags showing whether graph filtering was applied
+
+After each GraphRAG answer, click the **thumbs up/down** buttons to submit feedback. This triggers the online learning loop (D1): River model weight update + ADWIN drift detection.
+
+### 2. Ingest PDFs (D2)
+
+Click **Ingest PDFs** in the sidebar.
+
+- **Upload**: drag and drop any PDF file onto the drop zone (or click to browse). The file is saved and ingested automatically. You will see the chunk count and processing time.
+- **Directory ingestion**: type a folder path (default: `papers`) and click Start Ingestion to ingest all PDFs in that folder.
+
+After uploading a new PDF, go back to the Chat tab and ask questions about it.
+
+### 3. Graph Query (D2)
+
+Click **Graph Query** in the sidebar. Paste a Cypher query and click Execute.
+
+**Example — see all papers and their topics:**
+```
+MATCH (p:Paper)-[:HAS_TOPIC]->(t:Topic) RETURN p.title AS paper, collect(t.name) AS topics
+```
+
+**Example — see which authors wrote which papers:**
+```
+MATCH (a:Author)-[:WROTE]->(p:Paper) RETURN a.name AS author, p.title AS paper LIMIT 10
+```
+
+**Example — count papers per topic:**
+```
+MATCH (t:Topic)<-[:HAS_TOPIC]-(p:Paper) RETURN t.name AS topic, count(p) AS num_papers ORDER BY num_papers DESC
+```
+
+### 4. Stats (D1)
+
+Click **Stats** in the sidebar.
+
+- **System Statistics** — shows counts across all stores (MongoDB documents, Qdrant vectors, Neo4j nodes) and the current online learning state.
+- **Online Learning** — shows the River/ADWIN feedback stats: total steps, accuracy, drift count, and the prequential log. This updates each time you submit feedback via the thumbs up/down buttons in the Chat tab.
+
+---
+
+## Evaluation & Ablation Harness (D3)
+
+Run from the terminal (not the web UI):
 
 ```bash
-uvicorn app:app --host 0.0.0.0 --port 8000 --reload
-```
-
-> **Note:** If port 8000 is taken (e.g. by Splunk, which defaults to 8000), use a
-> different port: `uvicorn app:app --host 0.0.0.0 --port 8001 --reload`
-
-Swagger UI is at **http://localhost:8000/docs** (or whichever port you chose).
-
-## Quick Start (Full Docker Compose)
-
-Runs everything (MongoDB, Qdrant, Neo4j, and the FastAPI app) in containers:
-
-```bash
-cp .env.example .env
-# Edit .env to set LLM_API_KEY
-
-docker compose up -d --build
-```
-
-Wait ~2 minutes for the embedding model to download during first build. Then:
-
-```bash
-docker compose exec app python seed_data.py
-```
-
-API is at **http://localhost:8000/docs**.
-
-## Testing the Endpoints
-
-> **Windows PowerShell note:** PowerShell aliases `curl` to `Invoke-WebRequest`, which
-> uses different syntax. The examples below show both **Bash** (Linux/Mac/Git Bash) and
-> **PowerShell** commands. In PowerShell, use `curl.exe` to call the real curl, or use
-> `Invoke-RestMethod` as shown.
-
-### Health check
-
-**Bash:**
-```bash
-curl http://localhost:8000/health
-```
-
-**PowerShell:**
-```powershell
-Invoke-RestMethod http://localhost:8000/health
-```
-
-All three services (mongo, qdrant, neo4j) should return `"ok"`.
-
-### Ingest PDFs
-
-**Bash:**
-```bash
-curl -X POST http://localhost:8000/ingest \
-  -H "Content-Type: application/json" \
-  -d '{"pdf_dir": "papers"}'
-```
-
-**PowerShell:**
-```powershell
-Invoke-RestMethod -Method Post -Uri http://localhost:8000/ingest -ContentType "application/json" -Body '{"pdf_dir": "papers"}'
-```
-
-### Hybrid search (D2)
-
-**Bash:**
-```bash
-curl -X POST http://localhost:8000/search \
-  -H "Content-Type: application/json" \
-  -d '{"query": "attention mechanism in transformers", "top_k": 5}'
-```
-
-**PowerShell:**
-```powershell
-Invoke-RestMethod -Method Post -Uri http://localhost:8000/search -ContentType "application/json" -Body '{"query": "attention mechanism in transformers", "top_k": 5}'
-```
-
-Returns BM25 + Dense results fused via RRF, using the AutoML-optimized k=11 from
-`configs/run_card.yaml`.
-
-### GraphRAG query (D3)
-
-**Bash:**
-```bash
-curl -X POST http://localhost:8000/graphrag \
-  -H "Content-Type: application/json" \
-  -d '{"query": "What papers has Vaswani written about attention?", "top_k": 5}'
-```
-
-**PowerShell:**
-```powershell
-Invoke-RestMethod -Method Post -Uri http://localhost:8000/graphrag -ContentType "application/json" -Body '{"query": "What papers has Vaswani written about attention?", "top_k": 5}'
-```
-
-Full pipeline response includes:
-- `answer` — LLM-generated answer with page-range citations
-- `verified_citations` — citations that passed provenance filtering
-- `dropped_citations` — citations removed for failing provenance check
-- `provenance_score` — fraction of citations verified (1.0 = all valid)
-- `cypher_generated` — the Cypher query the LLM produced
-- `graph_filter_applied` — whether graph filtering was used
-- `fallback` — whether it fell back to unfiltered search
-- `bm25_top_score` / `dense_top_score` — for passing to `/feedback`
-
-### Submit feedback (D1 + D3)
-
-After a `/graphrag` query, submit helpfulness feedback:
-
-**Bash:**
-```bash
-curl -X POST http://localhost:8000/feedback \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "What papers has Vaswani written about attention?",
-    "helpful": 1,
-    "bm25_top_score": 12.5,
-    "dense_top_score": 0.87
-  }'
-```
-
-**PowerShell:**
-```powershell
-Invoke-RestMethod -Method Post -Uri http://localhost:8000/feedback -ContentType "application/json" -Body '{"query": "What papers has Vaswani written about attention?", "helpful": 1, "bm25_top_score": 12.5, "dense_top_score": 0.87}'
-```
-
-This synchronously:
-1. Updates the River LogisticRegression model weights
-2. Triggers ADWIN drift detection on the error stream
-3. Returns current accuracy and drift status
-
-### Check online learning stats
-
-**Bash:**
-```bash
-curl http://localhost:8000/feedback/stats
-```
-
-**PowerShell:**
-```powershell
-Invoke-RestMethod http://localhost:8000/feedback/stats
-```
-
-Returns total steps, accuracy, drift count, and the full prequential log.
-
-### Graph query (raw Cypher)
-
-**Bash:**
-```bash
-curl -X POST http://localhost:8000/graph/query \
-  -H "Content-Type: application/json" \
-  -d '{"cypher": "MATCH (a:Author)-[:WROTE]->(p:Paper) RETURN a.name, p.title LIMIT 10"}'
-```
-
-**PowerShell:**
-```powershell
-Invoke-RestMethod -Method Post -Uri http://localhost:8000/graph/query -ContentType "application/json" -Body '{"cypher": "MATCH (a:Author)-[:WROTE]->(p:Paper) RETURN a.name, p.title LIMIT 10"}'
-```
-
-### System stats
-
-**Bash:**
-```bash
-curl http://localhost:8000/stats
-```
-
-**PowerShell:**
-```powershell
-Invoke-RestMethod http://localhost:8000/stats
-```
-
-## Running the Evaluation & Ablation Harness (D3)
-
-The evaluation script tests the pipeline across three modes and reports
-p95 latency, Faithfulness, and Answer-Relevance.
-
-### Single mode
-
-```bash
+# Single mode
 python evaluate.py --csv eval_queries.csv --mode hybrid --top-k 5
-```
 
-### Full ablation (all three modes compared)
-
-```bash
+# Full ablation (compares all three modes)
 python evaluate.py --csv eval_queries.csv --ablation --top-k 5
 ```
 
-Modes:
 | Mode | Description |
 |------|-------------|
 | `vector_only` | BM25 + Dense hybrid search only, no graph filtering |
@@ -311,24 +191,9 @@ Modes:
 | `hybrid` | Full GraphRAG pipeline (graph filter with fallback) |
 
 Output: metrics table printed to stdout + results saved to `eval_results.json`.
-
-### CSV format
-
-Minimal (just queries):
-```csv
-query
-"How does attention work in transformers?"
-"What is BERT pre-training?"
-```
-
-With expected keywords (for answer-relevance scoring):
-```csv
-query,expected_keywords
-"How does attention work?","attention,self-attention,multi-head,scaled dot-product"
-"What is BERT?","masked language model,pre-training,bidirectional"
-```
-
 A sample `eval_queries.csv` with 5 queries is included in the repo.
+
+---
 
 ## Project Structure
 
@@ -344,10 +209,13 @@ A sample `eval_queries.csv` with 5 queries is included in the repo.
 ├── ingest.py               # PDF -> chunks -> MongoDB + Qdrant
 ├── seed_data.py            # Data seeding and quick evaluation
 ├── eval_queries.csv        # Sample evaluation queries
+├── start.bat               # One-click launcher (Windows)
 ├── docker-compose.yml      # MongoDB, Qdrant, Neo4j, FastAPI
 ├── Dockerfile              # App container image
 ├── requirements.txt        # All Python dependencies (D1 + D2 + D3)
 ├── .env.example            # Environment variable template
+├── static/
+│   └── index.html          # Web UI (chatbot frontend)
 ├── papers/                 # Sample arXiv PDFs (auto-downloaded by seed_data.py)
 ├── configs/
 │   └── run_card.yaml       # AutoML winning config + metrics (D1)
@@ -361,6 +229,8 @@ A sample `eval_queries.csv` with 5 queries is included in the repo.
 
 | Endpoint          | Method | Tag             | Description                                          |
 |-------------------|--------|-----------------|------------------------------------------------------|
+| `/`               | GET    | Frontend        | Web UI (chatbot interface)                           |
+| `/upload`         | POST   | Ingestion       | Upload and ingest a single PDF file                  |
 | `/ingest`         | POST   | Ingestion       | Ingest PDFs from a directory                         |
 | `/search`         | POST   | Search          | Hybrid BM25+Dense search with RRF fusion             |
 | `/graphrag`       | POST   | GraphRAG        | Full GraphRAG pipeline with provenance safety        |
