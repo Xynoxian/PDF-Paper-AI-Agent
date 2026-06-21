@@ -1,0 +1,51 @@
+run_card:
+  experiment: D1-AutoML-kNN-Optuna
+  date: '2026-05-17'
+  seed: 42
+  n_trials: 40
+  embed_model: BAAI/bge-small-en-v1.5
+  eval_k: 5
+
+search_space:
+  k:
+    type: int
+    low: 1
+    high: 20
+  alpha:
+    type: float
+    low: 0.0
+    high: 1.0
+  svd_dim:
+    type: categorical
+    choices: [null, 64, 128, 256]
+  norm:
+    type: categorical
+    choices: [l2, none]
+  metric:
+    type: categorical
+    choices: [cosine, euclidean]
+
+winning_config:
+  k: 11
+  alpha: 0.1154
+  svd_dim: 256
+  norm: none
+  metric: cosine
+
+metrics:
+  baseline:
+    NDCG@5: 0.9826
+    Recall@5: 1.0
+    p95_latency_ms: 2.23
+  automl_best:
+    NDCG@5: 0.9963
+    Recall@5: 1.0
+    p95_latency_ms: 1.89
+
+online_learning:
+  library: River
+  model: LogisticRegression (SGD, l2=1e-4)
+  drift: ADWIN (delta=0.002)
+  steps: 600
+  n_drifts: 1
+  final_accuracy: 0.64
