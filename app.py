@@ -20,8 +20,12 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
@@ -256,6 +260,37 @@ async def ingest_pdfs(req: IngestRequest) -> IngestResponse:
     return IngestResponse(status="ok", num_chunks=len(chunks), elapsed_seconds=round(elapsed, 2))
 
 
+_PAPERS_DIR = Path(__file__).resolve().parent / "papers"
+
+
+@app.post("/upload", tags=["Ingestion"])
+async def upload_pdf(file: UploadFile = File(...)):
+    """Upload a PDF and ingest it immediately."""
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are accepted.")
+
+    from ingest import ingest_pdf
+
+    _PAPERS_DIR.mkdir(exist_ok=True)
+    dest = _PAPERS_DIR / file.filename
+    content = await file.read()
+    dest.write_bytes(content)
+
+    t0 = time.time()
+    try:
+        chunks = ingest_pdf(str(dest))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    elapsed = time.time() - t0
+    return {
+        "status": "ok",
+        "filename": file.filename,
+        "num_chunks": len(chunks),
+        "elapsed_seconds": round(elapsed, 2),
+    }
+
+
 @app.post("/search", response_model=SearchResponse, tags=["Search"])
 async def hybrid_search(req: SearchRequest) -> SearchResponse:
     """Hybrid BM25 + Dense search with Reciprocal Rank Fusion."""
@@ -485,3 +520,18 @@ async def health_check() -> HealthResponse:
 
     overall = "healthy" if all(s == "ok" for s in [mongo_status, qdrant_status, neo4j_status]) else "degraded"
     return HealthResponse(status=overall, mongo=mongo_status, qdrant=qdrant_status, neo4j=neo4j_status)
+
+
+# ---------------------------------------------------------------------------
+# Frontend
+# ---------------------------------------------------------------------------
+
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
+@app.get("/", include_in_schema=False)
+async def frontend_root():
+    return FileResponse(_STATIC_DIR / "index.html")
+
+
+app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
