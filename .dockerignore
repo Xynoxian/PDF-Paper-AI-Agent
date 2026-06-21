@@ -1,0 +1,9 @@
+.venv
+__pycache__
+*.pyc
+.git
+Notebooks
+*.csv
+*.json
+chat_history.md
+document_pdf.pdf

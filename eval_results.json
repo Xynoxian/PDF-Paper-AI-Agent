@@ -1,0 +1,91 @@
+{
+  "config": {
+    "csv": "eval_queries.csv",
+    "top_k": 5,
+    "modes": [
+      "hybrid"
+    ],
+    "n_queries": 5
+  },
+  "aggregates": [
+    {
+      "mode": "hybrid",
+      "n_queries": 5,
+      "p95_latency_ms": 11315.24,
+      "mean_latency_ms": 6542.02,
+      "mean_faithfulness": 1.0,
+      "mean_answer_relevance": 0.5,
+      "mean_provenance_score": 1.0,
+      "mean_chunks_used": 5.0,
+      "total_verified_citations": 15,
+      "total_dropped_citations": 0
+    }
+  ],
+  "per_query": [
+    {
+      "query": "How does the attention mechanism work in transformers?",
+      "mode": "hybrid",
+      "latency_ms": 12630.46,
+      "faithfulness": 1.0,
+      "answer_relevance": 0.75,
+      "chunks_used": 5,
+      "graph_papers_found": 0,
+      "provenance_score": 1.0,
+      "verified_citations": 6,
+      "dropped_citations": 0,
+      "answer_length": 2008
+    },
+    {
+      "query": "What is BERT and how is it pre-trained?",
+      "mode": "hybrid",
+      "latency_ms": 4948.03,
+      "faithfulness": 1.0,
+      "answer_relevance": 0.75,
+      "chunks_used": 5,
+      "graph_papers_found": 0,
+      "provenance_score": 1.0,
+      "verified_citations": 6,
+      "dropped_citations": 0,
+      "answer_length": 1487
+    },
+    {
+      "query": "How does retrieval-augmented generation improve LLM accuracy?",
+      "mode": "hybrid",
+      "latency_ms": 4571.41,
+      "faithfulness": 1.0,
+      "answer_relevance": 0.8,
+      "chunks_used": 5,
+      "graph_papers_found": 0,
+      "provenance_score": 1.0,
+      "verified_citations": 3,
+      "dropped_citations": 0,
+      "answer_length": 570
+    },
+    {
+      "query": "What architecture does LLaMA use?",
+      "mode": "hybrid",
+      "latency_ms": 6054.37,
+      "faithfulness": 1.0,
+      "answer_relevance": 0.0,
+      "chunks_used": 5,
+      "graph_papers_found": 0,
+      "provenance_score": 1.0,
+      "verified_citations": 0,
+      "dropped_citations": 0,
+      "answer_length": 1109
+    },
+    {
+      "query": "How does LLaVA combine vision and language?",
+      "mode": "hybrid",
+      "latency_ms": 4505.85,
+      "faithfulness": 1.0,
+      "answer_relevance": 0.2,
+      "chunks_used": 5,
+      "graph_papers_found": 0,
+      "provenance_score": 1.0,
+      "verified_citations": 0,
+      "dropped_citations": 0,
+      "answer_length": 1110
+    }
+  ]
+}
