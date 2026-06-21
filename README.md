@@ -6,8 +6,9 @@ Hybrid Retrieval + GraphRAG with Online Learning, AutoML, and Provenance Safety 
 
 > **FASTEST WAY TO RUN THIS PROJECT:**
 > 1. Have **Docker Desktop** running and **Python 3.11+** installed
-> 2. Double-click **`start.bat`**
-> 3. The browser opens automatically. Done.
+> 2. Get a free API key from [Google AI Studio](https://aistudio.google.com/apikey) and put it in `.env` as `LLM_API_KEY`
+> 3. Double-click **`start.bat`**
+> 4. The browser opens automatically. Done.
 >
 > That's it. Everything else in this README is details. See [Quick Start (One Command)](#quick-start-one-command) below.
 
@@ -72,8 +73,9 @@ That's it. The script will:
 4. Launch the server and open **http://localhost:8001** in your browser
 
 > **Note:** On first run, dependency installation and paper downloads may take a couple of minutes.
-> If you want GraphRAG (LLM-powered answers), edit `.env` and set `LLM_API_KEY` before running.
-> Hybrid Search works without an API key.
+>
+> **For GraphRAG (LLM-powered answers):** You need a free API key from [Google AI Studio](https://aistudio.google.com/apikey) — just sign in with Google and click "Create API Key". Then edit `.env` and set `LLM_API_KEY` to your key.
+> Hybrid Search works fully without an API key.
 
 To stop the server, press `Ctrl+C` in the terminal window.
 
