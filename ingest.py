@@ -24,6 +24,9 @@ from pymongo import MongoClient
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance,
+    FieldCondition,
+    Filter,
+    MatchValue,
     PointStruct,
     VectorParams,
 )
@@ -223,6 +226,31 @@ def _get_qdrant_client() -> QdrantClient:
     return client
 
 
+def _delete_paper_chunks(
+    paper_id: str,
+    mongo_col,
+    qdrant_client: QdrantClient,
+) -> None:
+    """Remove all stored chunks for a paper (used before re-ingestion)."""
+    mongo_col.delete_many({"paper_id": paper_id})
+    try:
+        qdrant_client.delete(
+            collection_name=QDRANT_COLLECTION,
+            points_selector=Filter(
+                must=[FieldCondition(key="paper_id", match=MatchValue(value=paper_id))]
+            ),
+        )
+    except Exception as exc:
+        logger.warning("Could not delete Qdrant vectors for '%s': %s", paper_id, exc)
+
+
+def count_papers(mongo_col=None) -> int:
+    """Return the number of distinct ingested papers in MongoDB."""
+    if mongo_col is None:
+        mongo_col = _get_mongo_collection()
+    return len(mongo_col.distinct("paper_id"))
+
+
 # ---------------------------------------------------------------------------
 # Core pipeline
 # ---------------------------------------------------------------------------
@@ -251,6 +279,15 @@ def ingest_pdf(
     authors = _guess_authors(first_page_text)
     paper_id = _paper_id_from_path(pdf_path)
 
+    if mongo_col is None:
+        mongo_col = _get_mongo_collection()
+    if qdrant_client is None:
+        qdrant_client = _get_qdrant_client()
+
+    if mongo_col.count_documents({"paper_id": paper_id}, limit=1):
+        logger.info("  -> Replacing existing chunks for paper '%s'", paper_id)
+        _delete_paper_chunks(paper_id, mongo_col, qdrant_client)
+
     raw_chunks = chunk_text_with_pages(pages)
     logger.info("  -> %d chunks", len(raw_chunks))
 
@@ -276,13 +313,13 @@ def ingest_pdf(
     if mongo_col is None:
         mongo_col = _get_mongo_collection()
 
+    if qdrant_client is None:
+        qdrant_client = _get_qdrant_client()
+
     mongo_docs = [c.to_mongo_dict() for c in chunks]
     if mongo_docs:
         mongo_col.insert_many(mongo_docs)
         logger.info("  -> Stored %d chunks in MongoDB", len(mongo_docs))
-
-    if qdrant_client is None:
-        qdrant_client = _get_qdrant_client()
 
     points = [
         PointStruct(
@@ -332,11 +369,11 @@ def ingest_directory(
     for pdf_path in pdfs:
         paper_id = _paper_id_from_path(pdf_path)
         if paper_id in existing_ids:
-            logger.info("Skipping '%s' -- already ingested.", pdf_path.name)
-            continue
+            logger.info("Re-ingesting '%s' (already in database).", pdf_path.name)
         try:
             chunks = ingest_pdf(pdf_path, mongo_col, qdrant_client, batch_size)
             all_chunks.extend(chunks)
+            existing_ids.add(paper_id)
         except Exception as exc:
             logger.error("Failed to ingest '%s': %s", pdf_path.name, exc)
 

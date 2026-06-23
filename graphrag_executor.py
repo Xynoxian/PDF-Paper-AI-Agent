@@ -67,6 +67,13 @@ LLM_BASE_URL: str = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
 LLM_MODEL: str = os.getenv("LLM_MODEL", "gpt-4o-mini")
 LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0.0"))
 
+# Optional local LLM via Ollama — no API key required (runs on your machine).
+FALLBACK_LLM_ENABLED: bool = os.getenv("FALLBACK_LLM_ENABLED", "true").lower() in ("1", "true", "yes")
+FALLBACK_LLM_BASE_URL: str = os.getenv("FALLBACK_LLM_BASE_URL", "http://localhost:11434/v1")
+FALLBACK_LLM_MODEL: str = os.getenv("FALLBACK_LLM_MODEL", "llama3.2")
+# Placeholder only — Ollama ignores this; kept internal so you never configure a key.
+_LOCAL_LLM_DUMMY_KEY = "local-no-key-required"
+
 # ---------------------------------------------------------------------------
 # Graph schema (injected into the Cypher-generation prompt)
 # ---------------------------------------------------------------------------
@@ -249,6 +256,9 @@ class GraphRAGExecutor:
         llm_base_url: str = LLM_BASE_URL,
         llm_model: str = LLM_MODEL,
         llm_temperature: float = LLM_TEMPERATURE,
+        fallback_enabled: bool = FALLBACK_LLM_ENABLED,
+        fallback_base_url: str = FALLBACK_LLM_BASE_URL,
+        fallback_model: str = FALLBACK_LLM_MODEL,
         searcher: HybridSearcher | None = None,
         graph: KnowledgeGraph | None = None,
     ) -> None:
@@ -259,14 +269,133 @@ class GraphRAGExecutor:
             llm_base_url: Base URL for the LLM API (OpenAI-compatible).
             llm_model: Model identifier to use for generation.
             llm_temperature: Sampling temperature for LLM calls.
+            fallback_enabled: Whether to try local Ollama when the primary LLM fails.
+            fallback_base_url: Base URL for Ollama (default: http://localhost:11434/v1).
+            fallback_model: Model name pulled in Ollama (e.g. llama3.2).
             searcher: Pre-configured HybridSearcher instance (or creates one).
             graph: Pre-configured KnowledgeGraph instance (or creates one).
         """
-        self._llm = OpenAI(api_key=llm_api_key, base_url=llm_base_url)
+        self._primary_llm = OpenAI(api_key=llm_api_key or "not-set", base_url=llm_base_url)
         self._model = llm_model
         self._temperature = llm_temperature
+        self._fallback_enabled = fallback_enabled
+        self._fallback_base_url = fallback_base_url
+        self._fallback_llm: OpenAI | None = None
+        self._fallback_model = fallback_model
+        self._local_llm_available: bool | None = None
+        if fallback_enabled:
+            self._fallback_llm = OpenAI(
+                api_key=_LOCAL_LLM_DUMMY_KEY,
+                base_url=fallback_base_url,
+            )
+        self._last_llm_source = "primary"
         self._searcher = searcher or HybridSearcher()
         self._graph = graph or KnowledgeGraph()
+
+    def _is_local_llm_running(self) -> bool:
+        """Check whether Ollama (or similar) is reachable — no API key involved."""
+        if self._local_llm_available is not None:
+            return self._local_llm_available
+
+        import requests
+
+        root = self._fallback_base_url.rstrip("/").removesuffix("/v1")
+        try:
+            resp = requests.get(f"{root}/api/tags", timeout=1.5)
+            self._local_llm_available = resp.status_code == 200
+        except Exception:
+            self._local_llm_available = False
+
+        if not self._local_llm_available:
+            logger.info("Local Ollama not detected at %s — offline mode will be used.", root)
+        return self._local_llm_available
+
+    def _chat_completion(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        purpose: str,
+    ) -> str:
+        """Call the primary LLM, then optional local Ollama (no key), else raise."""
+        try:
+            response = self._primary_llm.chat.completions.create(
+                model=self._model,
+                temperature=self._temperature,
+                messages=messages,
+            )
+            self._last_llm_source = "primary"
+            content = response.choices[0].message.content
+            if content:
+                return content.strip()
+            raise ValueError("Primary LLM returned empty content")
+        except Exception as primary_exc:
+            logger.warning("Primary LLM failed (%s): %s", purpose, primary_exc)
+
+        if (
+            self._fallback_enabled
+            and self._fallback_llm is not None
+            and self._is_local_llm_running()
+        ):
+            try:
+                response = self._fallback_llm.chat.completions.create(
+                    model=self._fallback_model,
+                    temperature=self._temperature,
+                    messages=messages,
+                )
+                self._last_llm_source = "local"
+                content = response.choices[0].message.content
+                if content:
+                    logger.info(
+                        "Local Ollama (%s) succeeded for %s.",
+                        self._fallback_model,
+                        purpose,
+                    )
+                    return content.strip()
+            except Exception as fallback_exc:
+                logger.warning("Local Ollama failed (%s): %s", purpose, fallback_exc)
+
+        self._last_llm_source = "offline"
+        raise RuntimeError(f"All LLM providers failed for {purpose}")
+
+    @staticmethod
+    def _offline_answer(query: str, chunks: list[SearchResult]) -> str:
+        """Key-free answer built from retrieved chunks — always available."""
+        query_terms = {
+            w.lower()
+            for w in re.findall(r"\w+", query)
+            if len(w) > 2
+        }
+
+        parts = [
+            "Offline mode (no API key needed): answer assembled from your ingested papers.\n",
+        ]
+
+        for chunk in chunks[:3]:
+            sentences = re.split(r"(?<=[.!?])\s+", chunk.text.strip())
+            ranked: list[tuple[int, str]] = []
+            for sentence in sentences:
+                cleaned = sentence.strip()
+                if len(cleaned) < 25:
+                    continue
+                words = {w.lower() for w in re.findall(r"\w+", cleaned)}
+                overlap = len(query_terms & words) if query_terms else 0
+                ranked.append((overlap, cleaned))
+            ranked.sort(key=lambda item: item[0], reverse=True)
+
+            picks = [s for score, s in ranked[:2] if score > 0]
+            if not picks:
+                excerpt = chunk.text.strip().replace("\n", " ")
+                picks = [excerpt[:350] + ("..." if len(excerpt) > 350 else "")]
+
+            parts.append(f"\n{chunk.citation()}")
+            for pick in picks:
+                parts.append(f"  • {pick}")
+
+        parts.append(
+            "\nTip: install Ollama for fuller offline AI answers (ollama pull llama3.2), "
+            "or fix LLM_API_KEY for cloud Gemini."
+        )
+        return "\n".join(parts)
 
     def close(self) -> None:
         """Close the Neo4j driver connection."""
@@ -288,15 +417,13 @@ class GraphRAGExecutor:
             Tuple of (cypher_string_or_None, intent_description).
         """
         try:
-            response = self._llm.chat.completions.create(
-                model=self._model,
-                temperature=self._temperature,
+            raw = self._chat_completion(
                 messages=[
                     {"role": "system", "content": CYPHER_SYSTEM_PROMPT},
                     {"role": "user", "content": query},
                 ],
+                purpose="cypher_generation",
             )
-            raw = response.choices[0].message.content.strip()
 
             if raw.startswith("```"):
                 raw = raw.strip("`").removeprefix("json").strip()
@@ -309,7 +436,7 @@ class GraphRAGExecutor:
                 logger.info("Cypher: %s", cypher)
             return cypher, intent
 
-        except (json.JSONDecodeError, KeyError, IndexError) as exc:
+        except (json.JSONDecodeError, KeyError) as exc:
             logger.warning("Cypher generation parse error: %s", exc)
             return None, "parse_error"
         except Exception as exc:
@@ -420,18 +547,16 @@ class GraphRAGExecutor:
         )
 
         try:
-            response = self._llm.chat.completions.create(
-                model=self._model,
-                temperature=self._temperature,
+            return self._chat_completion(
                 messages=[
                     {"role": "system", "content": ANSWER_SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt},
                 ],
+                purpose="answer_generation",
             )
-            return response.choices[0].message.content.strip()
         except Exception as exc:
             logger.error("Answer generation failed: %s", exc)
-            return f"Error generating answer: {exc}"
+            return self._offline_answer(query, chunks)
 
     @staticmethod
     def _extract_unique_citations(chunks: list[SearchResult]) -> list[str]:

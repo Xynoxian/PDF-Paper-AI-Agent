@@ -126,6 +126,21 @@ def _get_executor():
     return _executor
 
 
+def _after_ingest() -> None:
+    """Sync Neo4j graph and refresh the BM25 index after new papers are ingested."""
+    try:
+        from graph_build import populate_from_mongodb
+        populate_from_mongodb(graph=_get_graph())
+        logger.info("Neo4j graph synced after ingestion.")
+    except Exception as exc:
+        logger.warning("Graph sync after ingest failed: %s", exc)
+
+    try:
+        _get_searcher().invalidate_bm25()
+    except Exception as exc:
+        logger.warning("BM25 invalidate after ingest failed: %s", exc)
+
+
 # ---------------------------------------------------------------------------
 # Pydantic request / response models
 # ---------------------------------------------------------------------------
@@ -227,6 +242,7 @@ class GraphRAGResponseModel(BaseModel):
 
 
 class StatsResponse(BaseModel):
+    mongo_papers: int
     mongo_chunks: int
     qdrant_vectors: int
     graph: dict[str, int]
@@ -238,6 +254,7 @@ class HealthResponse(BaseModel):
     mongo: str
     qdrant: str
     neo4j: str
+    papers: int
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +274,7 @@ async def ingest_pdfs(req: IngestRequest) -> IngestResponse:
         raise HTTPException(status_code=500, detail=str(exc))
 
     elapsed = time.time() - t0
+    _after_ingest()
     return IngestResponse(status="ok", num_chunks=len(chunks), elapsed_seconds=round(elapsed, 2))
 
 
@@ -283,6 +301,7 @@ async def upload_pdf(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(exc))
 
     elapsed = time.time() - t0
+    _after_ingest()
     return {
         "status": "ok",
         "filename": file.filename,
@@ -456,13 +475,18 @@ async def system_stats() -> StatsResponse:
         QDRANT_COLLECTION,
         QDRANT_HOST,
         QDRANT_PORT,
+        count_papers,
     )
 
+    mongo_papers = -1
+    mongo_count = -1
     try:
         mongo = MongoClient(MONGO_URI)
-        mongo_count = mongo[MONGO_DB][MONGO_COLLECTION].count_documents({})
+        col = mongo[MONGO_DB][MONGO_COLLECTION]
+        mongo_count = col.count_documents({})
+        mongo_papers = count_papers(col)
     except Exception:
-        mongo_count = -1
+        pass
 
     try:
         qc = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
@@ -481,6 +505,7 @@ async def system_stats() -> StatsResponse:
     ol_stats = adapter.get_summary()
 
     return StatsResponse(
+        mongo_papers=mongo_papers,
         mongo_chunks=mongo_count,
         qdrant_vectors=qdrant_count,
         graph=graph_stats,
@@ -494,12 +519,14 @@ async def health_check() -> HealthResponse:
     from pymongo import MongoClient
     from qdrant_client import QdrantClient
 
-    from ingest import MONGO_URI, QDRANT_HOST, QDRANT_PORT
+    from ingest import MONGO_URI, MONGO_DB, MONGO_COLLECTION, QDRANT_HOST, QDRANT_PORT, count_papers
 
+    papers_count = -1
     try:
         mc = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000)
         mc.server_info()
         mongo_status = "ok"
+        papers_count = count_papers(mc[MONGO_DB][MONGO_COLLECTION])
     except Exception as exc:
         mongo_status = f"error: {exc}"
 
@@ -519,7 +546,13 @@ async def health_check() -> HealthResponse:
         neo4j_status = f"error: {exc}"
 
     overall = "healthy" if all(s == "ok" for s in [mongo_status, qdrant_status, neo4j_status]) else "degraded"
-    return HealthResponse(status=overall, mongo=mongo_status, qdrant=qdrant_status, neo4j=neo4j_status)
+    return HealthResponse(
+        status=overall,
+        mongo=mongo_status,
+        qdrant=qdrant_status,
+        neo4j=neo4j_status,
+        papers=max(papers_count, 0),
+    )
 
 
 # ---------------------------------------------------------------------------

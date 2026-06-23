@@ -146,6 +146,12 @@ class HybridSearcher:
         self._bm25 = BM25Okapi(tokenised)
         logger.info("BM25 index built with %d documents.", len(docs))
 
+    def invalidate_bm25(self) -> None:
+        """Drop the cached BM25 index so the next search rebuilds from MongoDB."""
+        self._bm25 = None
+        self._bm25_docs = []
+        logger.info("BM25 index invalidated.")
+
     def _get_embed_model(self):
         """Return the cached SentenceTransformer model."""
         if self._embed_model is None:

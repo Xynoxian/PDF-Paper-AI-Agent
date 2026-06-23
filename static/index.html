@@ -130,14 +130,24 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
+    min-height: 0;
+    overflow: hidden;
   }
 
   /* ---- Chat Panel ---- */
-  .chat-panel { flex: 1; display: flex; flex-direction: column; }
+  .chat-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
 
   .messages {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 24px;
     display: flex;
     flex-direction: column;
@@ -545,6 +555,7 @@
       <div class="status-row"><span>MongoDB</span><span class="status-dot" id="st-mongo"></span></div>
       <div class="status-row"><span>Qdrant</span><span class="status-dot" id="st-qdrant"></span></div>
       <div class="status-row"><span>Neo4j</span><span class="status-dot" id="st-neo4j"></span></div>
+      <div class="status-row"><span>Papers</span><span id="st-papers">—</span></div>
     </div>
   </div>
 </div>
@@ -676,6 +687,8 @@ async function checkHealth() {
     document.getElementById('st-mongo').className = 'status-dot ' + (d.mongo === 'ok' ? 'ok' : 'err');
     document.getElementById('st-qdrant').className = 'status-dot ' + (d.qdrant === 'ok' ? 'ok' : 'err');
     document.getElementById('st-neo4j').className = 'status-dot ' + (d.neo4j === 'ok' ? 'ok' : 'err');
+    const papersEl = document.getElementById('st-papers');
+    if (papersEl) papersEl.textContent = d.papers != null ? String(d.papers) : '—';
   } catch {
     ['mongo','qdrant','neo4j'].forEach(s => document.getElementById('st-'+s).className = 'status-dot err');
   }
@@ -727,7 +740,10 @@ function hideTyping() {
 
 function scrollBottom() {
   const m = document.getElementById('messages');
-  m.scrollTop = m.scrollHeight;
+  requestAnimationFrame(() => {
+    m.scrollTop = m.scrollHeight;
+    requestAnimationFrame(() => { m.scrollTop = m.scrollHeight; });
+  });
 }
 
 function escHtml(s) {
@@ -915,6 +931,7 @@ async function uploadFiles(files) {
         bar.style.width = '100%';
         statusEl.textContent = d.num_chunks + ' chunks, ' + d.elapsed_seconds + 's';
         statusEl.className = 'upload-status ok';
+        checkHealth();
       } else {
         bar.style.width = '100%';
         bar.style.background = 'var(--error)';
@@ -947,6 +964,7 @@ async function runIngest() {
     });
     const d = await r.json();
     result.textContent = JSON.stringify(d, null, 2);
+    checkHealth();
   } catch (e) {
     result.textContent = 'Error: ' + e.message;
   } finally {
@@ -984,7 +1002,17 @@ async function loadStats() {
   try {
     const r = await fetch(API + '/stats');
     const d = await r.json();
-    result.textContent = JSON.stringify(d, null, 2);
+    const summary = [
+      `Papers ingested : ${d.mongo_papers ?? '?'}`,
+      `Text chunks     : ${d.mongo_chunks ?? '?'}`,
+      `Vector index    : ${d.qdrant_vectors ?? '?'}`,
+      `Graph papers    : ${d.graph?.papers ?? '?'}`,
+      '',
+      'Full details:',
+      JSON.stringify(d, null, 2),
+    ].join('\n');
+    result.textContent = summary;
+    checkHealth();
   } catch (e) {
     result.textContent = 'Error: ' + e.message;
   }
