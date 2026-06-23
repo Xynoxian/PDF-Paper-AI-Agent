@@ -140,11 +140,12 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
+    height: 0;
     overflow: hidden;
   }
 
   .messages {
-    flex: 1;
+    flex: 1 1 0;
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
@@ -740,10 +741,8 @@ function hideTyping() {
 
 function scrollBottom() {
   const m = document.getElementById('messages');
-  requestAnimationFrame(() => {
-    m.scrollTop = m.scrollHeight;
-    requestAnimationFrame(() => { m.scrollTop = m.scrollHeight; });
-  });
+  setTimeout(() => { m.scrollTop = m.scrollHeight; }, 0);
+  setTimeout(() => { m.scrollTop = m.scrollHeight; }, 50);
 }
 
 function escHtml(s) {
