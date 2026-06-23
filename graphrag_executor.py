@@ -261,6 +261,7 @@ class GraphRAGExecutor:
         fallback_model: str = FALLBACK_LLM_MODEL,
         searcher: HybridSearcher | None = None,
         graph: KnowledgeGraph | None = None,
+        use_tuned_slm: bool = False,
     ) -> None:
         """Initialize the GraphRAG executor.
 
@@ -274,7 +275,9 @@ class GraphRAGExecutor:
             fallback_model: Model name pulled in Ollama (e.g. llama3.2).
             searcher: Pre-configured HybridSearcher instance (or creates one).
             graph: Pre-configured KnowledgeGraph instance (or creates one).
+            use_tuned_slm: If True, use the QLoRA-tuned SLM for answer generation.
         """
+        self._use_tuned_slm = use_tuned_slm
         self._primary_llm = OpenAI(api_key=llm_api_key or "not-set", base_url=llm_base_url)
         self._model = llm_model
         self._temperature = llm_temperature
@@ -525,18 +528,32 @@ class GraphRAGExecutor:
         return "\n\n---\n\n".join(parts)
 
     def _generate_answer(self, query: str, chunks: list[SearchResult]) -> str:
-        """Ask the LLM to answer the query using only the retrieved chunks.
+        """Ask the LLM (or tuned SLM) to answer using the retrieved chunks.
 
-        The prompt strictly instructs the LLM to cite every claim using
-        the exact format [Authors] "Title" (pp. X-Y) matching chunk metadata.
+        When use_tuned_slm is enabled, routes to the QLoRA fine-tuned model
+        with disk caching. Otherwise uses the cloud/Ollama LLM chain.
 
         Args:
             query: The user's original question.
             chunks: Retrieved text chunks with citation metadata.
 
         Returns:
-            The LLM-generated answer string.
+            The generated answer string.
         """
+        # Route to tuned SLM if enabled and available
+        if self._use_tuned_slm:
+            try:
+                from slm_tuner import cached_generate
+                context = self._build_context(chunks)
+                augmented = f"{query}\n\nContext from papers:\n{context[:1500]}"
+                answer, cache_hit = cached_generate(augmented)
+                if cache_hit:
+                    logger.info("SLM answer served from cache.")
+                self._last_llm_source = "tuned_slm"
+                return answer
+            except (ImportError, FileNotFoundError) as exc:
+                logger.warning("Tuned SLM unavailable, falling back to LLM: %s", exc)
+
         context = self._build_context(chunks)
 
         user_prompt = (

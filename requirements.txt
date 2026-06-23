@@ -32,6 +32,17 @@ scikit-learn>=1.4.0
 # LLM client (GraphRAG D3)
 openai>=1.30.0
 
+# SLM fine-tuning with QLoRA (D4)
+transformers>=4.40.0
+peft>=0.11.0
+trl>=0.8.0
+datasets>=2.19.0
+bitsandbytes>=0.43.0
+accelerate>=0.30.0
+
+# Testing
+pytest>=8.0.0
+
 # Environment variables
 python-dotenv>=1.0.0
 

@@ -286,10 +286,75 @@ def run_hybrid(query: str, top_k: int) -> dict[str, Any]:
     }
 
 
+def run_hybrid_tuned(query: str, top_k: int) -> dict[str, Any]:
+    """Run hybrid mode with the fine-tuned SLM instead of the cloud LLM.
+
+    Uses the QLoRA-tuned model for answer generation while keeping
+    the same graph-filtered retrieval pipeline.
+
+    Args:
+        query: The search query.
+        top_k: Number of results to retrieve.
+
+    Returns:
+        Dict with answer, chunks, latency, and citation metadata.
+    """
+    from graphrag_executor import GraphRAGExecutor, provenance_filter
+
+    executor = GraphRAGExecutor()
+
+    t0 = time.perf_counter()
+
+    # Reuse graph filtering and retrieval from the standard pipeline
+    cypher, intent = executor._generate_cypher(query)
+    paper_ids: list[str] = []
+    if cypher:
+        paper_ids = executor._execute_cypher(cypher)
+
+    chunks, fallback = executor._filtered_search(
+        query, paper_ids if paper_ids else None, top_k,
+    )
+
+    if chunks:
+        # Use the tuned SLM for answer generation instead of the cloud LLM
+        try:
+            from slm_tuner import cached_generate
+            context = executor._build_context(chunks)
+            augmented_query = f"{query}\n\nContext from papers:\n{context[:1500]}"
+            raw_answer, cache_hit = cached_generate(augmented_query)
+        except (ImportError, FileNotFoundError):
+            raw_answer = (
+                "Tuned SLM not available. Run: python slm_tuner.py\n"
+                "Falling back to offline answer."
+            )
+            raw_answer = executor._offline_answer(query, chunks)
+
+        filtered_answer, verified, dropped, prov_score = provenance_filter(
+            raw_answer, chunks,
+        )
+    else:
+        filtered_answer = "No relevant documents found."
+        verified, dropped, prov_score = [], [], 1.0
+
+    latency_ms = (time.perf_counter() - t0) * 1000
+    executor.close()
+
+    return {
+        "answer": filtered_answer,
+        "chunks": chunks,
+        "latency_ms": latency_ms,
+        "verified": verified,
+        "dropped": dropped,
+        "provenance_score": prov_score,
+        "graph_papers_found": len(paper_ids),
+    }
+
+
 MODE_RUNNERS = {
     "vector_only": run_vector_only,
     "graph_only": run_graph_only,
     "hybrid": run_hybrid,
+    "hybrid_tuned": run_hybrid_tuned,
 }
 
 
@@ -438,12 +503,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--mode", type=str, default="hybrid",
-        choices=["vector_only", "graph_only", "hybrid"],
+        choices=["vector_only", "graph_only", "hybrid", "hybrid_tuned"],
         help="Pipeline mode to evaluate (default: hybrid)",
     )
     parser.add_argument(
         "--ablation", action="store_true",
-        help="Run all three modes for ablation comparison",
+        help="Run all modes for ablation comparison (includes tuned if available)",
     )
     parser.add_argument(
         "--top-k", type=int, default=5,
@@ -458,7 +523,17 @@ def main() -> None:
     queries = load_queries(args.csv)
     print(f"Loaded {len(queries)} queries from {args.csv}")
 
-    modes = ["vector_only", "graph_only", "hybrid"] if args.ablation else [args.mode]
+    if args.ablation:
+        modes = ["vector_only", "graph_only", "hybrid"]
+        # Include tuned mode if the adapter exists
+        try:
+            from pathlib import Path as _P
+            if _P("models/slm-tuned").exists():
+                modes.append("hybrid_tuned")
+        except Exception:
+            pass
+    else:
+        modes = [args.mode]
 
     all_results: list[dict] = []
     all_aggregates: list[AggregateMetrics] = []

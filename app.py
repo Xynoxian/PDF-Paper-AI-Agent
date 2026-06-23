@@ -462,6 +462,47 @@ async def graphrag_query(req: GraphRAGRequest) -> GraphRAGResponseModel:
     )
 
 
+@app.post("/graphrag/tuned", response_model=GraphRAGResponseModel, tags=["GraphRAG"])
+async def graphrag_tuned_query(req: GraphRAGRequest) -> GraphRAGResponseModel:
+    """GraphRAG pipeline using the QLoRA fine-tuned SLM for answer generation.
+
+    Same retrieval pipeline as /graphrag but routes answer generation through
+    the locally fine-tuned small language model instead of the cloud LLM.
+    """
+    from graphrag_executor import GraphRAGExecutor
+
+    executor = GraphRAGExecutor(
+        searcher=_get_searcher(),
+        graph=_get_graph(),
+        use_tuned_slm=True,
+    )
+
+    t0 = time.perf_counter()
+    try:
+        resp = executor.query(req.query, top_k=req.top_k)
+    except Exception as exc:
+        logger.error("GraphRAG (tuned) query failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+
+    return GraphRAGResponseModel(
+        answer=resp.answer,
+        citations=resp.citations,
+        verified_citations=resp.verified_citations,
+        dropped_citations=resp.dropped_citations,
+        chunks_used=resp.chunks_used,
+        graph_filter_applied=resp.graph_filter_applied,
+        graph_papers_found=resp.graph_papers_found,
+        cypher_generated=resp.cypher_generated,
+        intent=resp.intent,
+        fallback=resp.fallback,
+        provenance_score=resp.provenance_score,
+        bm25_top_score=resp.bm25_top_score,
+        dense_top_score=resp.dense_top_score,
+        elapsed_ms=round(elapsed_ms, 2),
+    )
+
+
 @app.get("/stats", response_model=StatsResponse, tags=["System"])
 async def system_stats() -> StatsResponse:
     """Return counts of papers, chunks, graph nodes, and online learning state."""
