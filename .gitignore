@@ -8,3 +8,7 @@ __pycache__/
 dist/
 build/
 .cache/
+models/
+cache/
+training_qa.json
+.venv/
